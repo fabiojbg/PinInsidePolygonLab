@@ -1,5 +1,5 @@
 <html>
-
+<link rel="stylesheet" type="text/css" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" />
 <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/leaflet.js"></script>
 <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/leaflet.css">
 <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.2/leaflet.draw.js"></script>
@@ -14,28 +14,30 @@
     height: 650px;
     width: 100%
 }
+button{ width:150px}
     </style>
 
 <body>        
-        <button style="z-index: 10000" id='btnDeleteAllPins' onclick="RemoveAllPins()">Delete All Pins</button>
-        <select id="cmbSelect"  style="z-index: 10000" onchange="RedrawAllPins()">
-                <option value="danrel">Darel Rex Method</option>
-                <option value="turfjs">Turf.js Method</option>
-                <option value="d3js">D3.js Method</option>
-                <option value="leafletpip">Leaftlet PIP Method</option>
-              </select>
-        <div id='map'></div>
+    <button style="z-index: 10000" id='btnDeleteAllPins' onclick="RemoveAllPins()">Delete All Pins</button>
+    <button style="z-index: 10000" id='btnDeletePolygon' onclick="RemovePolygon()">Delete Polygon</button>
+    <button style="z-index: 10000" id='btnBenchmark' onclick="Benchmark()">Benchmark</button>
+    <select id="cmbSelect"  style="z-index: 10000" onchange="RedrawAllPins()">
+            <option value="danrel">Darel Rex Method</option>
+            <option value="turfjs">Turf.js Method</option>
+            <option value="d3js">D3.js Method</option>
+            <option value="leafletpip">Leaftlet PIP Method</option>
+    </select>
+    <div id='map'></div>
 </body>
 
 </html>
 
 <script>
-var isDrawing = false;
-var lastPolygonCoords = [];
-var lastPolygonGeoJson = null;
-var lastPolygon = null;
-var markers = [];    
+var markers = [];    // holds all pins in the map
+var isDrawing = false; // true when drawing a polygon to avoid the creation of pins.
+var drawnPolygon = { coordinates: [], geoJson: null, layer : null};
 
+// map initialization
 var osmUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}.png',
  osmAttrib = '&copy; <a href="http://openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     osm = L.tileLayer(osmUrl, {
@@ -43,11 +45,12 @@ var osmUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_
         attribution: osmAttrib
     });
 
-var greenIcon = L.icon({
+
+var greenIcon = L.icon({  // pin inside polygon
     iconUrl: 'images/green-pin.png',
     iconAnchor: [15, 31]
 });
-var pinkIcon = L.icon({
+var pinkIcon = L.icon({   // pin outside polygon
     iconUrl: 'images/pink-pin.png',
     iconAnchor: [15, 31]
 });
@@ -56,22 +59,32 @@ var pinkIcon = L.icon({
 var map = L.map('map').setView([-22.968943664897527, -43.18708419799805], 14).addLayer(osm);
 
 window.onload = function(){
+    // force controls to position inside the map
     var btnDeleteAllPins = document.getElementById("btnDeleteAllPins");
     var cmbSelect = document.getElementById("cmbSelect");
         var parentMap = document.getElementById("map");
         var parentRect = parentMap.getBoundingClientRect();
         btnDeleteAllPins.style.position = "absolute";
-        btnDeleteAllPins.style.left = parentRect.left + 50 + "px";
-        btnDeleteAllPins.style.top = parentRect.top-10 + "px";
+        btnDeleteAllPins.style.left = (parentRect.left+50) + "px";
+        btnDeleteAllPins.style.top = (parentRect.top-20) + "px";
+
+        btnDeletePolygon.style.position = "absolute";
+        btnDeletePolygon.style.left = (parentRect.left+210) + "px";
+        btnDeletePolygon.style.top = (parentRect.top-20) + "px";
+
+        btnBenchmark.style.position = "absolute";
+        btnBenchmark.style.left = (parentRect.left+370) + "px";
+        btnBenchmark.style.top = (parentRect.top-20) + "px";        
+
         cmbSelect.style.position = "absolute";
-        cmbSelect.style.left = parentRect.left + 170 + "px";
-        cmbSelect.style.top = parentRect.top-10 + "px";
+        cmbSelect.style.left = (parentRect.left + 50) + "px";
+        cmbSelect.style.top = (parentRect.top+20) + "px";
 }
 
 var drawnItems = new L.FeatureGroup();
 map.addLayer(drawnItems);
 
-var drawControl = new L.Control.Draw({
+var drawControl = new L.Control.Draw({ //polygon draw control
     edit: {
         featureGroup: drawnItems
     },
@@ -87,34 +100,67 @@ var drawControl = new L.Control.Draw({
 });
 map.addControl(drawControl);
 
-         // Script for adding marker on map click
+// Script for adding marker on map click
 function onMapClick(e) {
   if( isDrawing ) return;
 
   InsertMarker(e.latlng.lng, e.latlng.lat);
 }
 
+map.on('click', onMapClick);
+    
+map.on('draw:drawstart', function (e) {
+        isDrawing = true;
+    });
+map.on('draw:drawstop', function (e) {
+        isDrawing = false;
+    });
+    
+map.on(L.Draw.Event.CREATED, function (event) {
+    if( event.layerType!='polygon')
+        return;
+
+    drawnItems.clearLayers();
+    var layer = event.layer;
+    
+    drawnItems.addLayer(layer);
+
+    drawnPolygon.geoJson = event.layer.toGeoJSON();
+    drawnPolygon.coordinates = drawnPolygon.geoJson.geometry.coordinates[0];
+    drawnPolygon.layer = L.polygon(drawnPolygon.coordinates);
+    drawnPolygon.preCalcDone = false; // for use by the Danrel Method
+    
+    RedrawAllPins();
+
+    console.clear();
+    console.log(event);
+    console.log(event.layer.toGeoJSON());
+    console.log(drawnPolygon.coordinates)
+});
+    
+
+// return if a point is inside the poluygon according to the method selected in the combobox
 function PointIsInPolygon(lng, lat)
 {
     var method = document.getElementById("cmbSelect").value;
     if( method == "danrel")
-        return pointInPolygon(lng, lat);
+        return DanrelPointIsInPolygon(drawnPolygon, lng, lat);
 
     if( method == "turfjs")
-        return isInTurf(lng, lat);
+        return Turfjs_IsInPolygon(drawnPolygon, lng, lat);
 
     if( method == "d3js")
-        return isInD3(lng, lat);
+        return D3js_IsInPolygon(drawnPolygon, lng, lat);
 
     if( method == "leafletpip")
-        return isInLeafletPIP(lng, lat);
-        
+        return LeafletPIP_IsInPolygon(drawnPolygon, lng, lat);    
+
     return false;
 }
 
+// redraw all pins according with the method selected in the combobox
 function RedrawAllPins()
 {
-    precalc_values();
     var old_array = markers.slice(0);
     markers = [];
     old_array.forEach( mk => {
@@ -134,53 +180,25 @@ function InsertMarker(lng, lat)
     alt: "Resource Location",
     icon: markerPin,
     riseOnHover: true
-  }).addTo(map)
-  .bindPopup(getPinInfo(lng,lat));//.openPopup();
+    }).addTo(map)
+    .bindPopup(getPinInfo(lng,lat));
     
-    marker.id = newGuid();
+    marker.id = fakeGuid();
     markers.push(marker);
 
-  // Update marker on changing it's position
-  marker.on("dragend", function (ev) {
-    var changedPos = ev.target.getLatLng();    
-    map.removeLayer(ev.target);
-    
-    var previousPinIndex = markers.findIndex( m => m.id == ev.target.id);
-    markers.splice(previousPinIndex, 1);
+    // Update marker on changing it's position
+    marker.on("dragend", function (ev) {
+        var changedPos = ev.target.getLatLng();    
+        
+        // remove and re-insert a new marker 
+        map.removeLayer(ev.target);
+        
+        var exitingPinIndex = markers.findIndex( m => m.id == ev.target.id);
+        markers.splice(exitingPinIndex, 1);
 
-    InsertMarker(changedPos.lng, changedPos.lat);
-  });               
+        InsertMarker(changedPos.lng, changedPos.lat);
+    });               
 }
-
-map.on('click', onMapClick);
-    
- map.on('draw:drawstart', function (e) {
-      isDrawing = true;
-  });
-map.on('draw:drawstop', function (e) {
-      isDrawing = false;
-  });
-  
-map.on(L.Draw.Event.CREATED, function (event) {
-    if( event.layerType!='polygon')
-        return;
-
-    drawnItems.clearLayers();
-    var layer = event.layer;
-  
-    drawnItems.addLayer(layer);
-
-    lastPolygonGeoJson = event.layer.toGeoJSON();
-    lastPolygonCoords = lastPolygonGeoJson.geometry.coordinates[0];
-    lastPolygon = L.polygon(lastPolygonCoords);
-    
-    RedrawAllPins();
-
-    console.clear();
-    console.log(event);
-    console.log(event.layer.toGeoJSON());
-    console.log(lastPolygonCoords)
-});
 
 function RemoveAllPins()
 {
@@ -191,135 +209,174 @@ function RemoveAllPins()
     });    
 }
 
+function RemovePolygon()
+{
+    drawnItems.clearLayers();
+    drawnPolygon.geoJson = null;
+    drawnPolygon.coordinates = [];
+    drawnPolygon.layer = null;
+    drawnPolygon.preCalcDone = false;
+    RedrawAllPins();
+}
+
 function getPinInfo(lng, lat)
-    {        
-        var isInD3Polygon = isInD3(lng, lat);
-        
-        var isInLeafletPIPPolygon = isInLeafletPIP(lng, lat);
-        
-        var start = performance.now();
-        var isInTurfPolygon = isInTurf1000(lng, lat);
-        var end = performance.now();
-        var res1 = (end-start);
-        console.log("IsInTurf1000 = " + (res1));
-
-        start = performance.now();
-        var isInMyFunction = pointInPolygon1000_2(lng, lat);
-        end = performance.now();
-        var res3 = (end-start);
-        console.log("pointInPolygon1000 = " + (res3));
-
-        start = performance.now();
-        var isInMyFunction = pointInPolygon1000(lng, lat);
-        end = performance.now();
-        var res2 = (end-start);
-        console.log("pointInPolygon1000 = " + (res2));
-
-        return "Lat: " + lat + "/ Long:" + lng + "<br>Turf.js Method=" + isInTurfPolygon 
-                                         + "<br>Danrel Rex Method=" + isInMyFunction
-                                               + "<br>D3.js Method=" + isInD3Polygon
-                                               + "<br>LeafletPIP Method=" + isInLeafletPIPPolygon ;
-    }
-
+{        
+    var danrelMethodResult = DanrelPointIsInPolygon(drawnPolygon, lng, lat);
     
-function isInTurf1000(lng, lat)
-{
-    var result;
-    for(var i=0; i<1; i++)
-    {
-        result = isInTurf(lng,lat);
-    }
-    return result;
-}
+    var turfjsMethodResult = Turfjs_IsInPolygon(drawnPolygon, lng, lat);
 
-function pointInPolygon1000(lng, lat)
-{
-    var result;
-    precalc_values();        
-    for(var i=0; i<1; i++)
-    {
-        result = pointInPolygon(lng,lat);
-    }
-    return result;
-}
+    var d3jsMethodResult = D3js_IsInPolygon(drawnPolygon, lng, lat);   
 
-function pointInPolygon1000_2(lng, lat)
-{
-    var result;
-    for(var i=0; i<1; i++)
-    {
-        precalc_values();        
-        result = pointInPolygon(lng,lat);
-    }
-    return result;
-}
+    var leafletPIPMethodResult = LeafletPIP_IsInPolygon(drawnPolygon, lng, lat); 
 
-function isInTurf(lng, lat)    
+    return "Lat: " + lat.toFixed(6) + " / Long:" + lng.toFixed(6) + "<br>Danrel Rex Method = " + (danrelMethodResult ? "inside" : "outside")
+                                           + "<br>Turf.js Method = " + (turfjsMethodResult  ? "inside" : "outside")                                           
+                                           + "<br>D3.js Method = " + (d3jsMethodResult ? "inside" : "outside")
+                                           + "<br>LeafletPIP Method = " + (leafletPIPMethodResult ? "inside" : "outside");
+}
+  
+function Turfjs_IsInPolygon(polygonData, lng, lat)    //http://turfjs.org/docs#pointsWithinPolygon
 {
-    if( lastPolygonCoords.length == 0) return false;
+    if(!polygonData || polygonData.coordinates.length == 0) return false;
     var tpoints = turf.points([[lng, lat]]);
     polp = [];
-    polp.push(lastPolygonCoords);
-    //lastPolygonCoords.forEach( p => polp.push());
+    polp.push(polygonData.coordinates);
+    
     var pol = turf.polygon(polp);
     var pt = turf.pointsWithinPolygon(tpoints, pol );
     return pt.features.length > 0;
 }
     
-function isInD3(lng, lat)
+function D3js_IsInPolygon(polygonData, lng, lat)      //http://docs.w3cub.com/d3~4/d3-geo/#geoContains
 {
-    if(!lastPolygonGeoJson) return false;
-    return d3.geoContains(lastPolygonGeoJson, [lng, lat]);
+    if(!polygonData.geoJson) return false;
+    return d3.geoContains(polygonData.geoJson, [lng, lat]);
 }
 
-function isInLeafletPIP(lng, lat)
+function LeafletPIP_IsInPolygon(polygonData, lng, lat)   //https://github.com/mapbox/leaflet-pip
 {
-    if( lastPolygon == null) return false;
+    if( !polygonData.layer) return false;
     var marker = L.marker( [lng, lat]);
-    return lastPolygon.contains(marker.getLatLng());
+    return polygonData.layer.contains(marker.getLatLng());
 }
 
-//http://alienryderflex.com/polygon/
-var constant = [];
-var multiple = [];
-function precalc_values() {
+function DanrelPointIsInPolygon(polygonData, lng, lat) { //method described in http://alienryderflex.com/polygon/
+    if (!polygonData.preCalcDone) {
+        preCalcForPointInPolygon(polygonData.coordinates);
+        polygonData.preCalcDone = true;
+    }
 
-    var polyCorners = lastPolygonCoords.length;
-    var i, j=polyCorners-1 ;
+    var polyCorners = polygonData.coordinates.length;
+    var j=polyCorners - 1;
+    var oddNodes= 0;
 
-    for(i=0; i<polyCorners; i++) {
-        if(lastPolygonCoords[j][1]==lastPolygonCoords[i][1]) {
-            constant[i]=lastPolygonCoords[i][0];
-            multiple[i]=0; 
+    for(var i = 0; i<polyCorners; i++) {
+        if ((polygonData.coordinates[i][1] < lat && polygonData.coordinates[j][1] >= lat ||
+            polygonData.coordinates[j][1] < lat && polygonData.coordinates[i][1] >= lat)) 
+        {
+            oddNodes ^= (lat * calc_multiple[i] + calc_constant[i] < lng);
+        }
+        j = i; 
+    }
+    return oddNodes ? true : false; 
+}
+
+var calc_constant = []; 
+var calc_multiple = [];
+function preCalcForPointInPolygon(polygonCoordinates) {
+    var polyCorners = polygonCoordinates.length;
+    var j = polyCorners - 1;
+
+    for (var i = 0; i < polyCorners; i++) {
+        var cix = polygonCoordinates[i][0];
+        var ciy = polygonCoordinates[i][1];
+        var cjx = polygonCoordinates[j][0];
+        var cjy = polygonCoordinates[j][1];
+
+        if (cjy == ciy) {
+            calc_constant[i] = cix;
+            calc_multiple[i] = 0;
         }
         else {
-            constant[i]=lastPolygonCoords[i][0]-(lastPolygonCoords[i][1]*lastPolygonCoords[j][0])/
-                        (lastPolygonCoords[j][1]-lastPolygonCoords[i][1])+(lastPolygonCoords[i][1]*lastPolygonCoords[i][0])/
-                        (lastPolygonCoords[j][1]-lastPolygonCoords[i][1]);
-            multiple[i]=(lastPolygonCoords[j][0]-lastPolygonCoords[i][0])/(lastPolygonCoords[j][1]-lastPolygonCoords[i][1]); 
+            calc_constant[i] = cix - (ciy * cjx) / (cjy - ciy) + (ciy * cix) / (cjy - ciy);
+            calc_multiple[i] = (cjx - cix) / (cjy - ciy);
         }
-        j=i; 
+        j = i;
     }
 }
-//http://alienryderflex.com/polygon/
-function pointInPolygon(lng, lat) {
 
-    var polyCorners = lastPolygonCoords.length;
-    var   i, j=polyCorners-1 ;
-    var  oddNodes=0;
-
-    for (i=0; i<polyCorners; i++) {
-    if ((lastPolygonCoords[i][1]< lat && lastPolygonCoords[j][1]>=lat
-    ||   lastPolygonCoords[j][1]< lat && lastPolygonCoords[i][1]>=lat)) 
-        {
-            oddNodes^=(lat*multiple[i]+constant[i]<lng); 
-        }
-        j=i; 
+function Benchmark()
+{
+    if( !drawnPolygon.coordinates || drawnPolygon.coordinates.length == 0 || markers.length==0)
+    {
+        alert("A polygon and points must be drawn first");
+        return;
     }
-    return oddNodes ?  true : false; 
+
+    var max = 10000;
+    var result = "Results for " + max + " iterations in the shown polygon and points" + "\n";
+    var i = 0, j=0;
+    var start = performance.now();
+    for(j=0; j<markers.length; j++)
+    {
+        var lng = markers[j].getLatLng().lng;
+        var lat = markers[j].getLatLng().lat;
+        for(i=0; i<max; i++)
+        {            
+            DanrelPointIsInPolygon(drawnPolygon, lng, lat);
+        }
+    }
+    var end = performance.now();
+    elapsed = end-start;
+    result += "Danrel = " + elapsed.toFixed(1) + " milliseconds" + "\n";
+
+    start = performance.now();
+    for(j=0; j<markers.length; j++)
+    {
+        var lng = markers[j].getLatLng().lng;
+        var lat = markers[j].getLatLng().lat;
+        for(i=0; i<max; i++)
+        {            
+            Turfjs_IsInPolygon(drawnPolygon, lng, lat);
+        }
+    }
+    end = performance.now();
+    elapsed = end-start;
+    result += "Turf.js = " + elapsed.toFixed(1) + " milliseconds" + "\n";
+
+    start = performance.now();
+    for(j=0; j<markers.length; j++)
+    {
+        var lng = markers[j].getLatLng().lng;
+        var lat = markers[j].getLatLng().lat;
+        for(i=0; i<max; i++)
+        {            
+            D3js_IsInPolygon(drawnPolygon, lng, lat);
+        }
+    }
+    end = performance.now();
+    elapsed = end-start;
+    result += "D3.js = " + elapsed.toFixed(1) + " milliseconds" + "\n";
+
+    start = performance.now();
+    for(j=0; j<markers.length; j++)
+    {
+        var lng = markers[j].getLatLng().lng;
+        var lat = markers[j].getLatLng().lat;
+        for(i=0; i<max; i++)
+        {            
+            LeafletPIP_IsInPolygon(drawnPolygon, lng, lat);
+        }
+    }
+    end = performance.now();
+    elapsed = end-start;
+    result += "LeafletPIP = " + elapsed.toFixed(1) + " milliseconds" + "\r\n";    
+
+    console.log(result);
+    alert(result);
 }
 
-function newGuid() {
+function fakeGuid() {
   function s4() {
     return Math.floor((1 + Math.random()) * 0x10000)
       .toString(16)
