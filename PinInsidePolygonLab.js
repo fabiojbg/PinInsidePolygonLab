@@ -21,13 +21,13 @@ var pinkIcon = L.icon({   // pin outside polygon
 });
 
 var map = {};
+var drawnItems = new L.FeatureGroup();
 
 window.addEventListener("load", function(){
 
 // initialize the map on the "map" div with a given center and zoom
     map = L.map('map').setView([-22.968943664897527, -43.18708419799805], 14).addLayer(osm);
 
-    var drawnItems = new L.FeatureGroup();
     map.addLayer(drawnItems);
     
     var drawControl = new L.Control.Draw({ //polygon draw control
@@ -45,14 +45,7 @@ window.addEventListener("load", function(){
     
     });
     map.addControl(drawControl);
-    
-    // Script for adding marker on map click
-    function onMapClick(e) {
-      if( isDrawing ) return;
-    
-      InsertMarker(e.latlng.lng, e.latlng.lat);
-    }
-    
+        
     map.on('click', onMapClick);
         
     map.on('draw:drawstart', function (e) {
@@ -61,30 +54,54 @@ window.addEventListener("load", function(){
     map.on('draw:drawstop', function (e) {
             isDrawing = false;
         });
+    map.on('draw:editstart', function (e) {
+            isDrawing = true;
+        });
+    map.on('draw:editstop', function (e) {
+            isDrawing = false;
+        });
+    map.on('draw:deletestop', function (e) {
+        RemovePolygon();
+    });
         
-    map.on(L.Draw.Event.CREATED, function (event) {
+    map.on('draw:created', function (event) {
         if( event.layerType!='polygon')
             return;
     
         drawnItems.clearLayers();
-        var layer = event.layer;
         
-        drawnItems.addLayer(layer);
-    
-        drawnPolygon.geoJson = event.layer.toGeoJSON();
-        drawnPolygon.coordinates = drawnPolygon.geoJson.geometry.coordinates[0];
-        drawnPolygon.layer = L.polygon(drawnPolygon.coordinates);
-        drawnPolygon.preCalcDone = false; // for use by the Danrel Method
+        PolygonEdited(event.layer);
         
-        RedrawAllPins();
-    
-        console.clear();
-        console.log(event);
-        console.log(event.layer.toGeoJSON());
-        console.log(drawnPolygon.coordinates)
-    });
-    
+        RedrawAllPins();    
+    });    
+    map.on('draw:edited', function (event) {
+   
+        drawnItems.clearLayers();
+        
+        event.layers.eachLayer(function(layer){
+            PolygonEdited(layer);
+         });
+    });    
 });
+
+// Script for adding marker on map click
+function onMapClick(e) {
+    if( isDrawing ) return;
+    
+    InsertMarker(e.latlng.lng, e.latlng.lat);
+}
+
+function PolygonEdited(polygonLayer)
+{
+    drawnItems.addLayer(polygonLayer);
+        
+    drawnPolygon.geoJson =polygonLayer.toGeoJSON();
+    drawnPolygon.coordinates = drawnPolygon.geoJson.geometry.coordinates[0];
+    drawnPolygon.layer = L.polygon(drawnPolygon.coordinates);
+    drawnPolygon.preCalcDone = false; // for use by the Danrel Method
+    
+    RedrawAllPins();    
+}          
 
 // return if a point is inside the poluygon according to the method selected in the combobox
 function PointIsInPolygon(lng, lat)
