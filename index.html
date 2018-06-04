@@ -13,29 +13,44 @@
 <script src='PinInsidePolygonLab.js'></script>
 <style type="text/css">
 #map {
-    height: 100%;
-    width: 100%
+    height: 100%;    
+    width: 100%;    
+}
+#mapOverlay
+{
+    z-index:1000; 
+    position:absolute; 
+    padding-left:60px; 
+    width:100%; height:1px    
 }
 button, select{
     width: 160px;
     position: absolute;
-    z-index:10000;
     height:30px
+}
+.info{
+    float:right;
+    background-color: lightseagreen;
+    color: white;
+    padding: 1 10 5 10;
 }
 </style>
 </head>
 <body>        
-    <div id="buttons" style='position:absolute; left:60px'>
-    <button style="top:10px" id='btnDeleteAllPins' onclick="RemoveAllPins()">Delete All Pins</button>
-    <button style="top:10px; left:160px" id='btnDeletePolygon' onclick="RemovePolygon()">Delete Polygon</button>
-    <button style="top:10px; left:320px" id='btnBenchmark' onclick="Benchmark()">Benchmark</button>
-    <select id="cmbSelect"  style="top:50px;" onchange="RedrawAllPins()">
-            <option value="danrel">Darel Rex Method</option>
-            <option value="turfjs">Turf.js Method</option>
-            <option value="d3js">D3.js Method</option>
-            <option value="leafletpip">Leaftlet PIP Method</option>
-    </select>        
-</div>
+    <div id="mapOverlay">
+        <button style="top:10px" id='btnDeleteAllPins' onclick="RemoveAllPins()">Delete All Pins</button>
+        <button style="top:10px; left:210px" onclick="RemovePolygon()">Delete Polygon</button>
+        <button style="top:10px; left:370px" onclick="Benchmark()">Benchmark</button>
+        <input type="text" id='txtNumIterations' style="position:absolute; top:40px; left:370px; width:50px" value="100" ></input>
+        <button style="top:10px; left:550px" onclick="randomPins()">Random Pins</button>
+        <input type="text" id='txtNumPins' style="position:absolute; top:40px; left:550px; width:50px" value="50" ></input>
+        <button style="top:10px; left:700px" onclick="randomPolygon()">Random Polygon</button>
+        <input type="text" id='txtNumVertices' style="position:absolute; top:40px; left:700px; width:50px" value="50" ></input>
+        <select id="cmbSelect"  style="top:50px;width:200px" onchange="RedrawAllPins()">
+        </select>        
+        <div id='benchmarkInfo' class='info' style="display:none;background-color: lightsalmon; cursor:pointer;"></div>        
+        <div id='drawnItemsInfo' class='info'></div>        
+    </div>
 <div id='map'></div>
 </body>
 

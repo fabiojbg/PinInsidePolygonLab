@@ -22,7 +22,12 @@ var pinkIcon = L.icon({   // pin outside polygon
 
 var map = {};
 var drawnItems = new L.FeatureGroup();
-
+var methods = [ {value:'danrel',  text:'Danrel Rex Method', mFunction: Danrel_PointIsInPolygon },
+{value:'wrf', text: 'W. Randolph Franklin Method', mFunction: WRF_IsInPolygon},
+{value:'turfjs', text:'Turf.js Method', mFunction: Turfjs_IsInPolygon},
+ {value:'d3js', text:'D3.js Method', mFunction: D3js_IsInPolygon},
+ {value:'leafletpip', text:'Leaflet PIP Method', mFunction: LeafletPIP_IsInPolygon },
+];
 window.addEventListener("load", function(){
 
 // initialize the map on the "map" div with a given center and zoom
@@ -82,6 +87,14 @@ window.addEventListener("load", function(){
             PolygonEdited(layer);
          });
     });    
+
+    methods.forEach(option =>{
+        var cmbSelect = document.getElementById("cmbSelect");
+        el = document.createElement("option");
+        el.value = option.value;
+        el.textContent = option.text;
+        cmbSelect.appendChild(el);
+    });
 });
 
 // Script for adding marker on map click
@@ -97,7 +110,7 @@ function PolygonEdited(polygonLayer)
         
     drawnPolygon.geoJson =polygonLayer.toGeoJSON();
     drawnPolygon.coordinates = drawnPolygon.geoJson.geometry.coordinates[0];
-    drawnPolygon.layer = L.polygon(drawnPolygon.coordinates);
+    drawnPolygon.layer = L.polygon(drawnPolygon.coordinates.map(item => [item[1], item[0]]));
     drawnPolygon.preCalcDone = false; // for use by the Danrel Method
     
     RedrawAllPins();    
@@ -106,18 +119,12 @@ function PolygonEdited(polygonLayer)
 // return if a point is inside the poluygon according to the method selected in the combobox
 function PointIsInPolygon(lng, lat)
 {
-    var method = document.getElementById("cmbSelect").value;
-    if( method == "danrel")
-        return DanrelPointIsInPolygon(drawnPolygon, lng, lat);
+    var methodValue = document.getElementById("cmbSelect").value;
+    
+    var method = methods.find((item) => item.value==methodValue );
 
-    if( method == "turfjs")
-        return Turfjs_IsInPolygon(drawnPolygon, lng, lat);
-
-    if( method == "d3js")
-        return D3js_IsInPolygon(drawnPolygon, lng, lat);
-
-    if( method == "leafletpip")
-        return LeafletPIP_IsInPolygon(drawnPolygon, lng, lat);    
+    if(method)
+       return method.mFunction(drawnPolygon, lng, lat);
 
     return false;
 }
@@ -161,7 +168,8 @@ function InsertMarker(lng, lat)
         markers.splice(exitingPinIndex, 1);
 
         InsertMarker(changedPos.lng, changedPos.lat);
-    });               
+    });           
+    showInfo();
 }
 
 function RemoveAllPins()
@@ -171,6 +179,7 @@ function RemoveAllPins()
     old_array.forEach( mk => {
         map.removeLayer(mk);
     });    
+    showInfo();
 }
 
 function RemovePolygon()
@@ -181,22 +190,19 @@ function RemovePolygon()
     drawnPolygon.layer = null;
     drawnPolygon.preCalcDone = false;
     RedrawAllPins();
+    showInfo();
 }
 
 function getPinInfo(lng, lat)
-{        
-    var danrelMethodResult = DanrelPointIsInPolygon(drawnPolygon, lng, lat);
-    
-    var turfjsMethodResult = Turfjs_IsInPolygon(drawnPolygon, lng, lat);
+{       
+    var results = ""; 
+    methods.forEach( method => {
+        var result = method.mFunction(drawnPolygon, lng, lat);
+        results = results + "<br>" + method.text + " = " + (result  ? "inside" : "outside")
+    });
 
-    var d3jsMethodResult = D3js_IsInPolygon(drawnPolygon, lng, lat);   
-
-    var leafletPIPMethodResult = LeafletPIP_IsInPolygon(drawnPolygon, lng, lat); 
-
-    return "Lat: " + lat.toFixed(6) + " / Long:" + lng.toFixed(6) + "<br>Danrel Rex Method = " + (danrelMethodResult ? "inside" : "outside")
-                                           + "<br>Turf.js Method = " + (turfjsMethodResult  ? "inside" : "outside")                                           
-                                           + "<br>D3.js Method = " + (d3jsMethodResult ? "inside" : "outside")
-                                           + "<br>LeafletPIP Method = " + (leafletPIPMethodResult ? "inside" : "outside");
+    return "<b>Lat: " + lat.toFixed(6) + " / Long: " + lng.toFixed(6) + "</b>" +
+           "<br>" + results;
 }
   
 function Turfjs_IsInPolygon(polygonData, lng, lat)    //http://turfjs.org/docs#pointsWithinPolygon
@@ -224,7 +230,7 @@ function LeafletPIP_IsInPolygon(polygonData, lng, lat)   //https://github.com/ma
     return polygonData.layer.contains(marker.getLatLng());
 }
 
-function DanrelPointIsInPolygon(polygonData, lng, lat) { //method described in http://alienryderflex.com/polygon/
+function Danrel_PointIsInPolygon(polygonData, lng, lat) { //method described in http://alienryderflex.com/polygon/
     if (!polygonData.preCalcDone) {
         preCalcForPointInPolygon(polygonData.coordinates);
         polygonData.preCalcDone = true;
@@ -244,6 +250,28 @@ function DanrelPointIsInPolygon(polygonData, lng, lat) { //method described in h
     }
     return oddNodes ? true : false; 
 }
+
+function WRF_IsInPolygon (polygonData, lng, lat) {
+    // W. Randolph Franklin algorithm based on
+    //https://wrf.ecse.rpi.edu//Research/Short_Notes/pnpoly.html
+    var xi, xj, i, intersect,
+        inside = false,
+        x = lng,
+        y = lat,
+        vs = polygonData.coordinates;
+
+    for (var i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+      xi = vs[i][0],
+      yi = vs[i][1],
+      xj = vs[j][0],
+      yj = vs[j][1],
+      intersect = ((yi > y) != (yj > y))
+          && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
 
 var calc_constant = []; 
 var calc_multiple = [];
@@ -269,6 +297,7 @@ function preCalcForPointInPolygon(polygonCoordinates) {
     }
 }
 
+var benchmarking = 0;
 function Benchmark()
 {
     if( !drawnPolygon.coordinates || drawnPolygon.coordinates.length == 0 || markers.length==0)
@@ -276,68 +305,109 @@ function Benchmark()
         alert("A polygon and points must be drawn first");
         return;
     }
+    if( benchmarking>0)
+        return;
 
-    var max = 10000;
-    var result = "Results for " + max + " iterations in the shown polygon and points" + "\n";
-    var i = 0, j=0;
-    var start = performance.now();
-    for(j=0; j<markers.length; j++)
-    {
-        var lng = markers[j].getLatLng().lng;
-        var lat = markers[j].getLatLng().lat;
-        for(i=0; i<max; i++)
-        {            
-            DanrelPointIsInPolygon(drawnPolygon, lng, lat);
+    var max = parseInt(txtNumIterations.value);
+    if( isNaN(max) || max<1 || max>10000)
+        alert("Invalid number of iterations");
+    
+    var results = "Results for " + max + " iterations in the shown polygon and points" + "\n";
+    results += "points = " + markers.length + "/ polygon vertices = " + drawnPolygon.coordinates.length + "\n\n";
+    benchmarkInfo.innerHTML = results.replace(/\n/g, "<br>");
+    // for (mi = 0; mi < methods.length; mi++) {
+    //    var method = methods[mi];
+    benchmarking = 0;
+    methods.forEach(method =>{
+        setTimeout(function(){
+        var i = 0, j=0;
+        benchmarking = benchmarking + 1;
+        results += method.text + " = " ;
+        benchmarkInfo.innerHTML = results.replace(/\n/g, "<br>");
+        var start = performance.now();
+        for(j=0; j<markers.length; j++)
+        {
+            var lng = markers[j].getLatLng().lng;
+            var lat = markers[j].getLatLng().lat;
+            for(i=0; i<max; i++)
+            {            
+                method.mFunction(drawnPolygon, lng, lat);
+            }
         }
-    }
-    var end = performance.now();
-    elapsed = end-start;
-    result += "Danrel = " + elapsed.toFixed(1) + " milliseconds" + "\n";
+        var end = performance.now();
+        elapsed = end-start;
+        var pointsPerSecond = Math.trunc(1000/(elapsed/max/markers.length));
+        results += elapsed.toFixed(1) + " milliseconds / " + pointsPerSecond.toLocaleString('pt') + " verifications per second.\n";
+        benchmarkInfo.innerHTML = results.replace(/\n/g, "<br>");
+        benchmarking = benchmarking - 1;
+    }, 100);});
 
-    start = performance.now();
-    for(j=0; j<markers.length; j++)
+    benchmarkInfo.style.display = "block";
+    benchmarkInfo.title = "Click here to dispatch";
+    benchmarkInfo.onclick = function() {this.style.display='none';}
+
+}
+
+function randomPins()
+{
+    if(!drawnPolygon.coordinates || drawnPolygon.coordinates.length==0 )
     {
-        var lng = markers[j].getLatLng().lng;
-        var lat = markers[j].getLatLng().lat;
-        for(i=0; i<max; i++)
-        {            
-            Turfjs_IsInPolygon(drawnPolygon, lng, lat);
-        }
+        alert("Draw a polygon first!");
+        return;
     }
-    end = performance.now();
-    elapsed = end-start;
-    result += "Turf.js = " + elapsed.toFixed(1) + " milliseconds" + "\n";
+    var numPins = parseInt(txtNumPins.value);
+    if( isNaN(numPins) || numPins<1)
+        alert("Invalid number of points");
 
-    start = performance.now();
-    for(j=0; j<markers.length; j++)
-    {
-        var lng = markers[j].getLatLng().lng;
-        var lat = markers[j].getLatLng().lat;
-        for(i=0; i<max; i++)
-        {            
-            D3js_IsInPolygon(drawnPolygon, lng, lat);
-        }
+    var bounds = drawnPolygon.layer.getBounds();
+    var xmax = bounds.getNorthEast().lng;
+    var ymax = bounds.getNorthEast().lat;
+    var xmin = bounds.getSouthWest().lng;
+    var ymin = bounds.getSouthWest().lat;
+    var width = xmax-xmin;
+    var height = ymax-ymin;
+
+    for(var i =0; i<numPins; i++){
+        var lng = xmin + Math.random()*width;
+        var lat = ymin + Math.random()*height;
+
+        InsertMarker(lng, lat);
     }
-    end = performance.now();
-    elapsed = end-start;
-    result += "D3.js = " + elapsed.toFixed(1) + " milliseconds" + "\n";
+    showInfo();
 
-    start = performance.now();
-    for(j=0; j<markers.length; j++)
-    {
-        var lng = markers[j].getLatLng().lng;
-        var lat = markers[j].getLatLng().lat;
-        for(i=0; i<max; i++)
-        {            
-            LeafletPIP_IsInPolygon(drawnPolygon, lng, lat);
-        }
+}
+
+function randomPolygon()
+{
+    var numVertices = parseInt(txtNumVertices.value);
+    if( isNaN(numVertices) || numVertices<5)
+        alert("Invalid number of vertices");
+    var bounds = map.getBounds();
+    var xmax = bounds.getNorthEast().lng;
+    var ymax = bounds.getNorthEast().lat;
+    var xmin = bounds.getSouthWest().lng;
+    var ymin = bounds.getSouthWest().lat;
+    var width = xmax-xmin;
+    var height = ymax-ymin;
+    xmin = xmin + width/20;
+    ymin = ymin + height/20;
+    width = width - width/10;
+    height = height - height/10;
+    var coordinates = [];
+    for(var i =0; i<numVertices-1; i++){
+        var lng = xmin + Math.random()*width;
+        var lat = ymin + Math.random()*height;
+
+        coordinates.push([ lat, lng ]);
     }
-    end = performance.now();
-    elapsed = end-start;
-    result += "LeafletPIP = " + elapsed.toFixed(1) + " milliseconds" + "\r\n";    
+    drawnItems.clearLayers();
+    PolygonEdited( L.polygon(coordinates) );
+    showInfo();
+}
 
-    console.log(result);
-    alert(result);
+function showInfo()
+{
+    drawnItemsInfo.innerHTML = "points = " + markers.length + "<br>vertices = " + drawnPolygon.coordinates.length;    
 }
 
 function fakeGuid() {
